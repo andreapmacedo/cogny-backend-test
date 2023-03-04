@@ -1,6 +1,7 @@
 const { DATABASE_SCHEMA, DATABASE_URL, SHOW_PG_MONITOR } = require('./config');
 const massive = require('massive');
 const monitor = require('pg-monitor');
+const axios = require('axios');
 
 // Call start
 (async () => {
@@ -65,17 +66,81 @@ const monitor = require('pg-monitor');
     try {
         await migrationUp();
 
-        //exemplo de insert
-        const result1 = await db[DATABASE_SCHEMA].api_data.insert({
-            doc_record: { 'a': 'b' },
-        })
-        console.log('result1 >>>', result1);
+        
+        // async function getPopulationData() {
+        // const response = await axios.get('https://datausa.io/api/data?drilldowns=Nation&measures=Population');
+        // return response.data.data;
+        // // return response
+        // }
+        
+        // getPopulationData().then(data => console.log(data));
+  
+        const data = {"data":[{"ID Nation":"01000US","Nation":"United States","ID Year":2020,"Year":"2020","Population":326569308,"Slug Nation":"united-states"},{"ID Nation":"01000US","Nation":"United States","ID Year":2019,"Year":"2019","Population":324697795,"Slug Nation":"united-states"},{"ID Nation":"01000US","Nation":"United States","ID Year":2018,"Year":"2018","Population":322903030,"Slug Nation":"united-states"},{"ID Nation":"01000US","Nation":"United States","ID Year":2017,"Year":"2017","Population":321004407,"Slug Nation":"united-states"},{"ID Nation":"01000US","Nation":"United States","ID Year":2016,"Year":"2016","Population":318558162,"Slug Nation":"united-states"},{"ID Nation":"01000US","Nation":"United States","ID Year":2015,"Year":"2015","Population":316515021,"Slug Nation":"united-states"},{"ID Nation":"01000US","Nation":"United States","ID Year":2014,"Year":"2014","Population":314107084,"Slug Nation":"united-states"},{"ID Nation":"01000US","Nation":"United States","ID Year":2013,"Year":"2013","Population":311536594,"Slug Nation":"united-states"}],"source":[{"measures":["Population"],"annotations":{"source_name":"Census Bureau","source_description":"The American Community Survey (ACS) is conducted by the US Census and sent to a portion of the population every year.","dataset_name":"ACS 5-year Estimate","dataset_link":"http://www.census.gov/programs-surveys/acs/","table_id":"B01003","topic":"Diversity","subtopic":"Demographics"},"name":"acs_yg_total_population_5","substitutions":[]}]}
 
-        //exemplo select
-        const result2 = await db[DATABASE_SCHEMA].api_data.find({
-            is_active: true
-        });
-        console.log('result2 >>>', result2);
+        // a. em memoria no nodejs usando map, filter, for etc
+        const filteredData = data.data.filter(item => item.Year === '2020' || item.Year === '2019' || item.Year === '2018');
+
+        // Utilizando os HOFs para somar os valores
+        const hofResult = filteredData
+        .map((item) => item.Population)
+        .reduce((acc, val) => acc + val);
+        console.log('Sum using Hofs:', hofResult);
+
+        // Utilizando o for para somar os valores
+        let forResult = 0;
+        for (let i = 0; i < filteredData.length; i++) {
+          forResult += filteredData[i].Population;
+        }
+        console.log('Sum using for', forResult); 
+
+        // comentado para evitar ficar inserindo dados no banco
+        // Adicionano os dados no banco
+        const result = await db[DATABASE_SCHEMA].api_data.insert({ doc_record: data });
+        console.log('Inserted data:', result);
+        
+
+        // const sql = `SELECT doc_record FROM ${DATABASE_SCHEMA}.api_data where id = '18'`;
+        // const result = await db.query(sql);
+        // const dataResult = result[0].doc_record.data;
+
+        // console.log(dataResult); // imprime o array de dados
+
+
+        // const sumPopulationFromSql = `SELECT sum((elem->>'Population')::int) as total_population
+        // FROM (
+        //   SELECT jsonb_array_elements(doc_record->'data') as elem
+        //   FROM ${DATABASE_SCHEMA}.api_data
+        //   WHERE id = '18'
+        // ) as subquery
+        // WHERE (elem->>'Year')::int IN (2020, 2019, 2018);
+        // `;
+
+        // const resultBySql = await db.query(sumPopulationFromSql);
+        // console.log('Total population in years 2020, 2019 and 2018 (using SELECT in PostgreSQL):', resultBySql);
+
+
+        // c. usando SELECT no postgres, pode fazer uma VIEW no banco de dados.
+        const view = `CREATE OR REPLACE VIEW population_sum AS
+        SELECT sum((elem->>'Population')::int) as total_population
+        FROM (
+          SELECT jsonb_array_elements(doc_record->'data') as elem
+          FROM ${DATABASE_SCHEMA}.api_data
+          WHERE id = '18'
+        ) as subquery
+        WHERE (elem->>'Year')::int IN (2020, 2019, 2018);`
+
+        // const resultByView = await db.query(view);
+
+        const sqlQueryView = `SELECT * FROM population_sum;`;
+        const sqlQuerySelect = await db.query(sqlQueryView);
+
+        console.log('Total population in years 2020, 2019 and 2018 (using view in PostgreSQL):', sqlQuerySelect);
+
+        // b. usando SELECT no postgres, pode fazer um SELECT inline no nodejs.
+        db.query('SELECT * FROM population_sum;').then((data) => {
+            console.log('data',  data);
+        }
+        );
 
     } catch (e) {
         console.log(e.message)
